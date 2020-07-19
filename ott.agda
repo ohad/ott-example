@@ -237,6 +237,50 @@ infix  1 begin_
 data _IsRelatedTo_ {A B : Set} (x : A) (y : B) : Set where
   relTo : (x∼y : A ∋ x == y ∈ B) → x IsRelatedTo y
 
+
+{- We can encode pairs as dependent products, but then we'll lose out
+on pattern matching -}
+
+record Pair (A B : Set) : Set where
+  constructor ⟪_,_⟫
+  field
+    fst : A
+    snd : B 
+
+open Pair
+module _ { A B A' B' : Set} where
+  record PairEq (p : Pair A B) (q : Pair A' B') : Set where
+    constructor MkPairEq
+    field
+      fst-== : fst p == fst q
+      snd-== : snd p == snd q
+
+  postulate
+    Pair-=== : A === A'
+           →  B === B'
+           → Pair A B === Pair A' B'
+           
+    out-pair-fst : Pair A B === Pair A' B'
+                → A === A'
+
+    out-pair-snd : Pair A B === Pair A' B'
+                → B === B'
+
+    Pair-== :   (AB==A'B' : Pair A B === Pair A' B')
+             → (p : Pair A  B )
+             → (p' : Pair A' B')
+             → PairEq p p'
+             → Pair A B ∋ p == p' ∈ Pair A' B'
+
+    coerce-pair : (E : Pair A B === Pair A' B')
+               → (p : Pair A B)
+               → p [ E ⟩ ≡ ⟪ fst p [ out-pair-fst E ⟩
+                            , snd p [ out-pair-snd E ⟩
+                            ⟫
+
+{- REWRITE coerce-pair -}
+
+
 ------------------------------------------------------------------------
 -- Reasoning combinators
 
@@ -362,7 +406,7 @@ module _ where
 
 module _ where
   open Cat
-  _ᵒᵖ : Cat -> Cat
+  _ᵒᵖ : Cat → Cat
   -- Structure
   Obj (C ᵒᵖ) = Obj C
   Hom (C ᵒᵖ) X Y = Hom C Y X
@@ -373,6 +417,27 @@ module _ where
   id-rgt (C ᵒᵖ) = id-lft C
   assoc (C ᵒᵖ) {A} {_} {_} {D} h g f = sym {A = Hom C D A } 
                                           (assoc C f g h)
+
+  _×_ : Cat → Cat → Cat
+  -- Structure
+  Obj (C₁ × C₂) = Pair (Obj C₁) (Obj C₂)
+  Hom (C₁ × C₂) ⟪ A₁ , A₂ ⟫ ⟪ B₁ , B₂ ⟫ = Pair (Hom C₁ A₁ B₁) (Hom C₂ A₂ B₂)
+  id  (C₁ × C₂) = ⟪ id C₁ , id C₂ ⟫
+  ((C₁ × C₂) ∘ ⟪ g₁ , g₂ ⟫) ⟪ f₁ , f₂ ⟫ = ⟪ g₁ ∘₁ f₁  , g₂ ∘₂ f₂ ⟫
+    where open Cat C₁ hiding (Obj) renaming (_∘_ to _∘₁_)
+          open Cat C₂ hiding (Obj) renaming (_∘_ to _∘₂_)
+  -- Property
+  id-lft (C₁ × C₂) ⟪ f₁ , f₂ ⟫ = Pair-== (refl-set _) _ _
+                                   (MkPairEq (Cat.id-lft C₁ _)
+                                             (Cat.id-lft C₂ _))
+  id-rgt (C₁ × C₂) ⟪ f₁ , f₂ ⟫ = Pair-== (refl-set _) _ _
+                                   (MkPairEq (Cat.id-rgt C₁ _)
+                                             (Cat.id-rgt C₂ _))
+  assoc (C₁ × C₂) ⟪ h₁ , h₂ ⟫ ⟪ g₁ , g₂ ⟫ ⟪ f₁ , f₂ ⟫ =
+    Pair-== (refl-set _) _ _ (MkPairEq (Cat.assoc C₁ _ _ _)
+                                       (Cat.assoc C₂ _ _ _))
+
+
 module _ (C : Cat) (D : LocallySmall) where
   open Cat C hiding (Obj)
   open LocallySmall D hiding (Obj)
@@ -426,6 +491,7 @@ module _ {C : Cat} {D : LocallySmall} {F G : Functor C D} where
 
   {- Since we're not introducing === between NatTrans (we don't have
   == between functors!), that's it for now -}
+
 
 
 -- TODO: do this for arbitrary locally small cats
@@ -507,6 +573,8 @@ module _ (C : Cat) (D : LocallySmall) where
                         ((γ ^ A') ∘ ( β ^ A')) ∘ (α ^ A')
                         ∎
                      )) where open LocallySmall D using (_∘_ ; Hom)
+
+
 
 -- Coends
 
