@@ -437,6 +437,8 @@ module _ where
     Pair-== (refl-set _) _ _ (MkPairEq (Cat.assoc C₁ _ _ _)
                                        (Cat.assoc C₂ _ _ _))
 
+-- Can show Universal Property too in the future
+
 
 module _ (C : Cat) (D : LocallySmall) where
   open Cat C hiding (Obj)
@@ -574,9 +576,90 @@ module _ (C : Cat) (D : LocallySmall) where
                         ∎
                      )) where open LocallySmall D using (_∘_ ; Hom)
 
+record Initial (D : LocallySmall) : Set₁ where
+  constructor MkInitial
+  open LocallySmall D hiding (Obj)
+  field
+    𝟎 : Obj D
+    mediating : (X : Obj D) → Hom 𝟎 X
+
+    uniqueness : {X : Obj D} → (f : Hom 𝟎 X) → f == mediating X
 
 
 -- Coends
+module _ {C : Cat} {D : LocallySmall} (F : Functor ((C ᵒᵖ) × C) D) where
+  open Cat
+  open LocallySmall D hiding (Obj) renaming (Hom to Hom'; _∘_ to _∘'_; id to id')
+  open Functor
+  record ACowedge : Set₁ where
+    constructor MkCowedge
+    field
+      -- structure
+      Vertex : Obj D
+      -- Probably the wrong term, as usually not injective
+      Inject : (A : Obj C) → Hom' (F ∗ ⟪ A , A ⟫) Vertex
+
+      -- property
+      dinaturality : {A B : Obj C} → (f : Hom C A B)
+                   → (Inject B) ∘' (F ⋆ ⟪ id C , f ⟫)
+                  ==  (Inject A) ∘' (F ⋆ ⟪ f    , id C ⟫)
+
+  open ACowedge
+  record CowedgeMorphism (V W : ACowedge) : Set where
+    constructor MkCowedgeMorphism
+    field
+      H : Hom' (Vertex V) (Vertex W)
+
+      cowedge-preservation :
+            (A : Obj C)
+        →  H ∘' (Inject V A) == Inject W A
+
+  -- This is the bit that's getting tedious
+  open CowedgeMorphism
+  module _ {V W : ACowedge} (lhs rhs : CowedgeMorphism V W) where
+    record CowedgeMorphismEq : Set where
+      constructor MkCowedgeMorphismEq
+      field
+        H-== : H lhs == H rhs
+
+  open CowedgeMorphismEq
+  postulate
+    CowedgeMorphism-== : {V W : ACowedge} {lhs rhs : CowedgeMorphism V W}
+                      → CowedgeMorphismEq lhs rhs → lhs == rhs
+
+  open LocallySmall
+  open CowedgeMorphism
+  Cowedge : LocallySmall
+  -- structure
+  Obj Cowedge = ACowedge
+  Hom Cowedge V W = CowedgeMorphism V W
+  H                    (id Cowedge    ) = id'
+  cowedge-preservation (id Cowedge {W}) A = id-lft D (Inject W A)
+  H                    (_∘_ Cowedge g f) = (H g) ∘' (H f)
+  cowedge-preservation (_∘_ Cowedge {U} {V} {W} g f) A =
+    begin
+    (H g ∘' H f) ∘' (Inject U A)
+    ==⟨ sym {A = Hom' (F ∗ ⟪ A , A ⟫) (Vertex W)} (assoc D _ _ _ ) ⟩
+    H g ∘' (H f ∘' Inject U A)
+    ==⟨ cong (λ u → H g ∘' u) (cowedge-preservation f A) ⟩
+    H g ∘' Inject V A
+    ==⟨ cowedge-preservation g A ⟩
+    Inject W A
+    ∎
+  -- property
+  id-lft Cowedge f = CowedgeMorphism-== (MkCowedgeMorphismEq (id-lft D _))
+  id-rgt Cowedge f = CowedgeMorphism-== (MkCowedgeMorphismEq (id-rgt D _))
+  assoc  Cowedge h g f = CowedgeMorphism-== (MkCowedgeMorphismEq (assoc D _ _ _))
+
+  Coend : Set₁
+  Coend = Initial Cowedge
+
+
+SetFunCocompleteness : {C : Cat} → (F : Functor ((C ᵒᵖ) × C) SetFun) → Coend {C = C} F
+SetFunCocompleteness F = {!!}
+
+∫^ : {C : Cat} → (F : Functor ((C ᵒᵖ) × C) SetFun) → Set
+∫^ {C} F = ACowedge.Vertex (Initial.𝟎 {D = Cowedge {C = C} F} (SetFunCocompleteness F)) 
 
 -- Cocompleteness of SetFun : ∫^ F : (C : Cat) → (F : Functor (C ᵒᵖ × C) Set) → Set
 -- coend' C F = Sigma (c : C) F ∗ (c , c)
