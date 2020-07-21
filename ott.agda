@@ -168,7 +168,13 @@ postulate
                   → (v : A / R)
                   → (k : (x : A) → B)
                   → (pf : ∀ (a a' : A) → R a a' → B ∋ k a == k a' ∈ B)
-                  → B 
+                  → B
+  ext-quotient : {A : Set}
+                 {R : A → A → Set}
+                 {Q : A / R → Set}
+                 → (f g : (u : A / R) → Q u)
+                 → ((a : A) → f [ a ] == g [ a ])
+                 → f == g
 
  -- let [x] = [v] in k(x) because pf ≡ k(v)
  
@@ -217,8 +223,9 @@ postulate
                                                 quotient-== b b' bSb')
 
 
-{- REWRITE quotient-reduce  
-           coerce-quotient -}
+{-# REWRITE quotient-reduce  
+            coerce-quotient #-}
+
 
 
 -- From Agda stdlib
@@ -278,7 +285,7 @@ module _ { A B A' B' : Set} where
                             , snd p [ out-pair-snd E ⟩
                             ⟫
 
-{- REWRITE coerce-pair -}
+{-# REWRITE coerce-pair #-}
 
 
 ------------------------------------------------------------------------
@@ -312,6 +319,18 @@ x ∎ = relTo (Refl {s = x})
 -- Syntax declarations
 
 syntax step-∼  x y∼z x∼y = x ==⟨  x∼y ⟩ y∼z
+
+
+cong2 : {S₁ S₂  : Set} {T : S₁ → S₂ → Set}
+     → (f : (x₁ : S₁) → (x₂ : S₂) → T x₁ x₂) → {x₁ y₁ : S₁} {x₂ y₂ : S₂} → (x₁ == y₁) → (x₂ == y₂) 
+     → T x₁ x₂  ∋ f x₁ x₂  == f y₁ y₂  ∈ T y₁ y₂
+cong2 f {x₁} {y₁} {x₂} {y₂} x₁==y₁ x₂==y₂ = begin
+                        f x₁ x₂
+                        ==⟨ cong (λ u → f u x₂) x₁==y₁ ⟩
+                        f y₁ x₂
+                        ==⟨ cong (f y₁) x₂==y₂ ⟩
+                        f y₁ y₂
+                        ∎
 
 
 record LocallySmall : Set₂ where
@@ -654,12 +673,82 @@ module _ {C : Cat} {D : LocallySmall} (F : Functor ((C ᵒᵖ) × C) D) where
   Coend : Set₁
   Coend = Initial Cowedge
 
+module _ {C : Cat} (F : Functor ((C ᵒᵖ) × C) SetFun) where
+  open Cat C
+  open Functor
+  record coend' : Set where
+    constructor _|=_
+    field
+      world : Cat.Obj C
+      elem  : F ∗ ⟪ world , world ⟫
 
-SetFunCocompleteness : {C : Cat} → (F : Functor ((C ᵒᵖ) × C) SetFun) → Coend {C = C} F
-SetFunCocompleteness F = {!!}
+  open coend'
 
-∫^ : {C : Cat} → (F : Functor ((C ᵒᵖ) × C) SetFun) → Set
-∫^ {C} F = ACowedge.Vertex (Initial.𝟎 {D = Cowedge {C = C} F} (SetFunCocompleteness F)) 
+  record coend-~ (wx wy : coend') : Set where
+    constructor Mk-~
+    field
+      mor : Hom (world wy) (world wx)
+      src : F ∗ ⟪ world wx , world wy ⟫
+      eqy : Quote ((F ⋆ ⟪ mor , id ⟫) src == (elem wy))
+      eqx : Quote ((F ⋆ ⟪ id , mor ⟫) src == (elem wx))
+
+  -- TODO: === on coend' and coend-~
+
+  {- need to define the mediating morphism up-front because co-patterns don't seem to let us refer
+     backwards to previous definitions. -}
+  coend-mediating : (W : ACowedge {C = C} F) → (wx : coend' / coend-~) → ACowedge.Vertex W
+  coend-mediating W wx = quotient-elim wx (λ (w |= x) → ACowedge.Inject W w x)
+      {-because-} λ (w |= x) (v |= y) wx~vy → 
+        let f : Hom v w
+            f = coend-~.mor wx~vy
+            a : F ∗ ⟪ w , v ⟫
+            a = coend-~.src wx~vy
+        in begin
+        ACowedge.Inject W w x
+        ==⟨ cong (ACowedge.Inject W w)
+            (sym {A = F ∗ ⟪ w , w ⟫ } (Unquote (coend-~.eqx wx~vy))) ⟩
+        ACowedge.Inject W w ((F ⋆ ⟪ id , f  ⟫) a)
+        ==⟨ cong (λ (u : F ∗ ⟪ w , v ⟫ → ACowedge.Vertex W) → u a)
+                  (ACowedge.dinaturality W f) ⟩
+        ACowedge.Inject W v ((F ⋆ ⟪ f  , id ⟫) a)
+        ==⟨ cong (ACowedge.Inject W v) (Unquote (coend-~.eqy wx~vy)) ⟩
+        ACowedge.Inject W v y
+        ∎ 
+
+
+  SetFunCocompleteness : Coend {C = C} F
+  ACowedge.Vertex (Initial.𝟎 SetFunCocompleteness) = coend' / coend-~
+  ACowedge.Inject (Initial.𝟎 SetFunCocompleteness) w x = [ w |= x ]
+  ACowedge.dinaturality (Initial.𝟎 SetFunCocompleteness) {w} {v} f =
+    ext-λ _ _ λ a b a==b → quotient-== _ _ (Mk-~ f a
+      (MkQuote (cong (F ⋆ ⟪ f , id ⟫) a==b))
+      (MkQuote (Refl {s = (F ⋆ ⟪ id , f ⟫) a}))) 
+                 
+  CowedgeMorphism.H                    (Initial.mediating SetFunCocompleteness W) = coend-mediating W
+          
+  CowedgeMorphism.cowedge-preservation (Initial.mediating SetFunCocompleteness W) w =
+    ext-λ _ _ λ x y x==y →
+      begin
+      coend-mediating W [ w |= x ]
+      ==⟨ Refl { s = ACowedge.Inject W w x } ⟩  -- REWRITE magic happens here
+      ACowedge.Inject W w x
+      ==⟨ cong (ACowedge.Inject W w) x==y ⟩
+      ACowedge.Inject W w y
+      ∎
+  Initial.uniqueness SetFunCocompleteness {W} h = CowedgeMorphism-== F
+    (MkCowedgeMorphismEq (ext-quotient _ _ λ (w |= x) →
+      begin
+      CowedgeMorphism.H h [ w |= x ]
+      ==⟨ cong (λ (u : F ∗ ⟪ w , w ⟫ → ACowedge.Vertex W)  → u x)
+               (CowedgeMorphism.cowedge-preservation h w) ⟩
+      ACowedge.Inject W w x
+      ==⟨ Refl {s = ACowedge.Inject W w x} ⟩
+      coend-mediating W [ w |= x ]
+      ∎
+      ) )
+
+  ∫^ : Set
+  ∫^ = ACowedge.Vertex (Initial.𝟎 {D = Cowedge {C = C} F} SetFunCocompleteness) 
 
 -- Cocompleteness of SetFun : ∫^ F : (C : Cat) → (F : Functor (C ᵒᵖ × C) Set) → Set
 -- coend' C F = Sigma (c : C) F ∗ (c , c)
